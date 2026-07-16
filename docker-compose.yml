@@ -1,0 +1,119 @@
+# UESTC dorm electricity monitor
+# - roominfo: always-on web dashboard + SQLite history + monitor (Plan A)
+# - roominfo-auth: on-demand Chromium/noVNC credential refresh (profile: auth)
+# - roominfo-auth-ctl: tiny docker-cli sidecar that starts/stops roominfo-auth
+#
+# Default host binds (loopback): ${WEB_BIND:-127.0.0.1:3032} dashboard,
+# ${VNC_BIND:-127.0.0.1:3033} noVNC. Put a reverse proxy (HTTPS) in front
+# for remote access; see docs/deployment.md.
+#
+# Docs: README.md · docs/deployment.md · DOCKER.md
+services:
+  roominfo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    # Default: pull prebuilt image from GHCR (fast first deploy).
+    # Local dev: ROOMINFO_IMAGE=roominfo:latest docker compose up -d --build
+    image: "${ROOMINFO_IMAGE:-ghcr.io/kohakunamori/roominfo:latest}"
+    container_name: roominfo
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Plan A on the always-on service
+      ONLINE_BROWSER_REFRESH: "false"
+      ONLINE_SESSION_FILE: "./data/.uestc_session.json"
+      DATA_FILE: "./data.json"
+      HISTORY_DB: "./data/history.db"
+      WEB_HOST: "0.0.0.0"
+      WEB_PORT: "8080"
+      # Prefer manual auth start from host (no docker.sock in container)
+      AUTH_MODE: "${AUTH_MODE:-manual}"
+      AUTH_SERVICE_NAME: "roominfo-auth"
+      # Empty → frontend auto-picks URL: local browser → host:VNC port,
+      # remote browser → same-origin /vnc/… (needs reverse proxy)
+      AUTH_NOVNC_URL: "${AUTH_NOVNC_URL:-}"
+      # Host-side noVNC port (left half of VNC_BIND); frontend uses this for
+      # direct access when opened on localhost without a reverse proxy.
+      VNC_PUBLIC_PORT: "${VNC_PUBLIC_PORT:-3033}"
+      AUTH_STATUS_FILE: "./data/auth_status.json"
+      WEB_PUBLIC_URL: "${WEB_PUBLIC_URL:-http://127.0.0.1:3032/}"
+      TZ: "${TZ:-Asia/Shanghai}"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./data.json:/app/data.json
+      - ./data:/app/data
+    ports:
+      # Loopback by default; expose via reverse proxy or override WEB_BIND
+      - "${WEB_BIND:-127.0.0.1:3032}:8080"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/login', timeout=5)",
+        ]
+      interval: 2m
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  roominfo-auth:
+    profiles: ["auth"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: auth
+    image: "${ROOMINFO_AUTH_IMAGE:-ghcr.io/kohakunamori/roominfo-auth:latest}"
+    container_name: roominfo-auth
+    # Exit after login/MFA/export → container stops (省资源). Do not restart.
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      ONLINE_BROWSER_REFRESH: "true"
+      ONLINE_SESSION_FILE: "./data/.uestc_session.json"
+      ONLINE_BROWSER_STATE_FILE: "./data/.uestc_browser_state.json"
+      ONLINE_BROWSER_PROFILE_DIR: "./data/.uestc_chrome_profile"
+      ONLINE_BROWSER_EXECUTABLE: "/usr/bin/chromium"
+      AUTH_STATUS_FILE: "./data/auth_status.json"
+      AUTH_NOVNC_URL: "${AUTH_NOVNC_URL:-}"
+      AUTH_TIMEOUT_SECONDS: "${AUTH_TIMEOUT_SECONDS:-900}"
+      # Brief hold after worker exits so status flushes / operator can glance.
+      AUTH_HOLD_SECONDS: "${AUTH_HOLD_SECONDS:-20}"
+      # Do NOT set AUTH_KEEP_VNC — idle Chromium wastes RAM.
+      DISPLAY: ":99"
+      TZ: "${TZ:-Asia/Shanghai}"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./data:/app/data
+    ports:
+      - "${VNC_BIND:-127.0.0.1:3033}:6080"
+    shm_size: "1gb"
+
+  # Lightweight host-helper alternative that lives next to the stack.
+  # Mounts docker.sock ONLY here (not on roominfo). Polls data/.auth_*_request
+  # written by AUTH_MODE=manual dashboard buttons.
+  roominfo-auth-ctl:
+    image: docker:27-cli
+    container_name: roominfo-auth-ctl
+    restart: unless-stopped
+    working_dir: /project
+    environment:
+      AUTH_PROJECT_ROOT: /project
+      AUTH_DATA_DIR: /project/data
+      AUTH_SERVICE_NAME: roominfo-auth
+      AUTH_HOLD_SECONDS: "${AUTH_HOLD_SECONDS:-20}"
+      AUTH_TIMEOUT_SECONDS: "${AUTH_TIMEOUT_SECONDS:-900}"
+      AUTH_LIFECYCLE_POLL_SECONDS: "2"
+      TZ: "${TZ:-Asia/Shanghai}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./:/project
+    entrypoint: ["/bin/sh", "/project/docker/auth-lifecycle.sh"]
+    # Always-on but idle most of the time (tiny busy-wait).

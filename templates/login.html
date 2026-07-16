@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Roominfo · 登录</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body class="auth-page">
+  <div class="auth-shell">
+    <aside class="auth-aside" aria-hidden="true">
+      <div class="auth-aside-inner">
+        <div class="logo logo-lg">
+          <svg viewBox="0 0 32 32" width="36" height="36" fill="none">
+            <rect x="2" y="2" width="28" height="28" rx="8" fill="currentColor" opacity=".16"/>
+            <path d="M17.5 6.5 10 17h5.2l-1.7 8.5L21.8 14H16l1.5-7.5Z" fill="currentColor"/>
+          </svg>
+        </div>
+        <p class="auth-kicker">UESTC Dorm Power</p>
+        <h2 class="auth-title">宿舍电费，<br/>一眼看清。</h2>
+        <p class="auth-copy">定时查询余额与电量，会话失效时支持 noVNC 现场修复。</p>
+        <ul class="auth-points">
+          <li>本地 SQLite 历史</li>
+          <li>低余额邮件提醒</li>
+          <li>按需刷新门户会话</li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="auth-main">
+      <form class="auth-card" method="post" autocomplete="on">
+        <div class="auth-card-head">
+          <h1>登录 Roominfo</h1>
+          <p>使用访问令牌进入仪表盘</p>
+        </div>
+
+        {% if need_token %}
+        <label class="field" for="token">
+          <span class="field-label">访问令牌</span>
+          <input id="token" name="token" type="password" autocomplete="current-password" required placeholder="粘贴 WEB_AUTH_TOKEN" />
+        </label>
+        {% else %}
+        <p class="auth-warn">未配置访问令牌，当前可直接进入（仅建议内网调试）。</p>
+        <input type="hidden" name="token" value="" />
+        {% endif %}
+
+        {% if error %}
+        <p class="auth-error" role="alert">{{ error }}</p>
+        {% endif %}
+
+        <button type="submit" class="btn btn-primary btn-block">进入仪表盘</button>
+      </form>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,45 @@
+# VCS / local tooling
+.git
+.github
+.claude
+.agents
+.venv
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# Secrets & sessions — never bake into image layers
+.env
+.env.*
+!.env.example
+.uestc_session.json
+.uestc_session.json.*
+.uestc_browser_state.json
+.uestc_browser_state.json.*
+.uestc_chrome_profile
+.uestc_mfa_qr.png
+deploy_bundle
+release
+data/*
+!data/.gitkeep
+*.db
+mitm_mcp_traffic.db
+*.log
+
+# Dev / docs not needed at runtime
+tests
+docs
+refer_images
+artifacts
+tmp_deploy*
+*.md
+!README.md
+
+# IDE / OS junk
+.idea
+.vscode
+*.swp
+.DS_Store
+Thumbs.db

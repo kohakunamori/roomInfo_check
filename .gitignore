@@ -1,0 +1,29 @@
+# Secrets / local credentials — never commit
+.env
+.uestc_session.json
+.uestc_session.json.tmp
+.uestc_session.json.bak-*
+.uestc_session.json.meta.json
+.uestc_mfa_qr.png
+.uestc_browser_state.json
+.uestc_browser_state.json.meta.json
+.uestc_browser_state.json.tmp
+.uestc_chrome_profile/
+deploy_bundle/
+
+# Runtime / generated
+data/*
+!data/.gitkeep
+release/
+.venv/
+__pycache__/
+*.py[cod]
+*.db
+mitm_mcp_traffic.db
+.pytest_cache/
+.agents/
+.claude/
+tmp_deploy*/
+*.log
+artifacts/
+refer_images/

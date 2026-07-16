@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Roominfo · 电费监控</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <script>window.__ROOMINFO_VNC_PORT__ = {{ vnc_port|default(3033)|int }};</script>
+  <script src="{{ url_for('static', filename='dashboard.js') }}" defer></script>
+</head>
+<body class="app-body">
+  <div class="app-shell">
+
+    <!-- ── Sidebar ─────────────────────────────────────── -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <div class="logo" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="22" height="22" fill="none">
+            <rect x="2" y="2" width="28" height="28" rx="8" fill="currentColor" opacity=".12"/>
+            <path d="M17.5 6.5 10 17h5.2l-1.7 8.5L21.8 14H16l1.5-7.5Z" fill="currentColor"/>
+          </svg>
+        </div>
+        <div>
+          <strong class="sidebar-title">宿舍电费监控</strong>
+          <span class="tag">UESTC</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav" aria-label="导航">
+        <button type="button" class="nav-item is-active" data-view="dashboard">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8">
+              <rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="5" rx="2"/>
+              <rect x="13" y="10" width="8" height="11" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/>
+            </svg>
+          </span>仪表盘
+        </button>
+        <button type="button" class="nav-item" data-view="auth">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7l8-4Z" stroke-linejoin="round"/>
+              <path d="m9 12 2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>认证接管
+          <span id="nav-auth-dot" class="nav-dot hidden" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="nav-item" data-panel="samples">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M4 19V5M4 19h16M8 15v-4M12 15V8M16 15v-6" stroke-linecap="round"/>
+            </svg>
+          </span>采样历史
+        </button>
+        <button type="button" class="nav-item" data-panel="events">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M8 6h12M8 12h12M8 18h8" stroke-linecap="round"/>
+              <circle cx="4.5" cy="6" r="1.2" fill="currentColor" stroke="none"/>
+              <circle cx="4.5" cy="12" r="1.2" fill="currentColor" stroke="none"/>
+              <circle cx="4.5" cy="18" r="1.2" fill="currentColor" stroke="none"/>
+            </svg>
+          </span>事件日志
+          <span class="nav-badge hidden" id="nav-alert-badge"></span>
+        </button>
+        <button type="button" class="nav-item" id="nav-settings">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8">
+              <rect x="3" y="5" width="18" height="14" rx="2"/>
+              <path d="m4 7 8 6 8-6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>告警与采样设置
+        </button>
+      </nav>
+
+      <div class="sidebar-status">
+        <h3 class="sidebar-status-title">系统状态</h3>
+        <dl class="status-kv">
+          <div><dt>采集服务</dt><dd><span id="svc-monitor" class="badge-mini badge-ok">运行中</span></dd></div>
+          <div><dt>邮件服务</dt><dd><span id="svc-mail" class="badge-mini">—</span></dd></div>
+          <div><dt>最后采样</dt><dd id="svc-last-sample" class="mono">—</dd></div>
+          <div><dt>检查间隔</dt><dd id="svc-interval" class="mono">每 {{ interval }} 分钟</dd></div>
+          <div><dt>告警阈值</dt><dd id="svc-threshold" class="mono">≤ {{ threshold }} 元</dd></div>
+        </dl>
+        <div class="sidebar-foot">
+          <span class="version-dot" aria-hidden="true"></span>
+          <span>版本</span>
+          <span class="mono">{{ version }}</span>
+          <a class="sidebar-logout" href="{{ url_for('logout') }}">退出</a>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ── Main column ─────────────────────────────────── -->
+    <div class="app-main">
+      <header class="topbar">
+        <button type="button" class="btn btn-quiet btn-sm topbar-burger" id="btn-sidebar-toggle" aria-label="切换导航">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9">
+            <path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <h1 class="topbar-title" id="topbar-title">仪表盘</h1>
+        <nav class="crumbs" aria-label="面包屑">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m4 11 8-7 8 7M6 10v9h12v-9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>首页</span><span class="crumb-sep">/</span><span id="crumb-current">仪表盘</span>
+        </nav>
+        <div class="topbar-pills">
+          <span id="pill-session" class="pill pill-danger hidden">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 15.5v.5" stroke-linecap="round"/></svg>
+            会话过期
+          </span>
+          <span id="pill-alert" class="pill pill-warn hidden">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4a5 5 0 0 1 5 5v3l1.5 3h-13L7 12V9a5 5 0 0 1 5-5ZM10 18a2 2 0 0 0 4 0" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            低余额告警已触发
+          </span>
+        </div>
+        <div class="topbar-actions">
+          <button id="btn-query" type="button" class="btn btn-soft">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4h-4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            立即查询
+          </button>
+          <button id="btn-auth-start" type="button" class="btn btn-primary">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M14 4h6v6M20 4l-9 9M11 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            刷新登录
+          </button>
+        </div>
+        <div class="user-chip" id="user-chip">
+          <button type="button" class="user-chip-btn" id="user-chip-btn" aria-haspopup="menu" aria-expanded="false">
+            <span class="avatar" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 19.5c1.6-3 4-4.5 7-4.5s5.4 1.5 7 4.5" stroke-linecap="round"/></svg>
+            </span>
+            <span class="user-meta">
+              <strong>管理员</strong>
+              <small><span class="online-dot" id="online-dot"></span><span id="online-text">在线</span></small>
+            </span>
+            <svg class="user-caret" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="user-menu" id="user-menu" hidden>
+            <a href="{{ url_for('logout') }}">退出登录</a>
+          </div>
+        </div>
+      </header>
+
+      <div class="content-row">
+        <!-- ── View: dashboard ─────────────────────────── -->
+        <main class="view view-dashboard is-active" id="view-dashboard">
+          <div id="session-banner" class="alert alert-warn hidden" role="alert">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M12 5 3 19h18L12 5Z" stroke-linejoin="round"/><path d="M12 10v4M12 16.5v.5" stroke-linecap="round"/></svg>
+            <p id="session-banner-text">当前校园门户会话已过期，请点击「刷新登录」重新认证。</p>
+            <button type="button" class="alert-close" id="btn-banner-close" aria-label="关闭">×</button>
+          </div>
+
+          <section class="kpi-grid">
+            <article class="kpi-card">
+              <span class="kpi-icon kpi-icon-room" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 21V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v16M4 21h16M9 21v-4h6v4" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2" stroke-linecap="round"/></svg>
+              </span>
+              <div class="kpi-body">
+                <span class="kpi-label">宿舍房间</span>
+                <strong id="room-name" class="kpi-value">—</strong>
+                <span class="kpi-sub">房间状态 <span id="room-state" class="badge-mini badge-ok">在线</span></span>
+              </div>
+            </article>
+            <article class="kpi-card">
+              <span class="kpi-icon kpi-icon-money" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h3" stroke-linecap="round"/></svg>
+              </span>
+              <div class="kpi-body">
+                <span class="kpi-label">账户余额</span>
+                <strong id="amount" class="kpi-value">—</strong>
+                <span class="kpi-sub">更新时间 <span id="amount-ts" class="mono">—</span>
+                  <span class="info-tip" tabindex="0" data-tip="来自「云中成电」门户的最近一次成功查询">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.5" stroke-linecap="round"/></svg>
+                  </span>
+                </span>
+              </div>
+            </article>
+            <article class="kpi-card">
+              <span class="kpi-icon kpi-icon-power" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 3 5 13.5h5L9.5 21 18 10.5h-5L13 3Z" stroke-linejoin="round"/></svg>
+              </span>
+              <div class="kpi-body">
+                <span class="kpi-label">剩余电量</span>
+                <strong id="electricity" class="kpi-value">—</strong>
+                <span class="kpi-sub">更新时间 <span id="elec-ts" class="mono">—</span>
+                  <span class="info-tip" tabindex="0" data-tip="与余额同批采样；用于估算日均用电">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.5" stroke-linecap="round"/></svg>
+                  </span>
+                </span>
+              </div>
+            </article>
+            <article class="kpi-card">
+              <span class="kpi-icon kpi-icon-session" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <div class="kpi-body">
+                <span class="kpi-label">会话状态 / 最后检查</span>
+                <strong id="session-state" class="kpi-value">—</strong>
+                <span class="kpi-sub"><span id="last-check" class="mono">—</span></span>
+              </div>
+            </article>
+          </section>
+
+          <section class="card chart-card">
+            <div class="card-head">
+              <div>
+                <h2>余额与用电历史</h2>
+                <p id="chart-sub" class="card-sub">—</p>
+              </div>
+              <div class="segmented" role="group" aria-label="时间范围">
+                <button type="button" data-hours="24" class="chip">24h</button>
+                <button type="button" data-hours="168" class="chip active">7d</button>
+                <button type="button" data-hours="720" class="chip">30d</button>
+                <button type="button" data-hours="0" class="chip">全部</button>
+              </div>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="chart" height="150"></canvas>
+            </div>
+            <div class="brush-strip" id="brush-strip" hidden title="拖动选择时间窗口，点击空白恢复">
+              <canvas id="brush-canvas" height="46"></canvas>
+            </div>
+            <div class="derive-strip">
+              <div class="derive-item">
+                <span class="derive-icon d-money" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18" stroke-linecap="round"/></svg>
+                </span>
+                <div><span class="derive-label">余额变化</span><strong id="d-amount-delta" class="derive-value">—</strong></div>
+              </div>
+              <div class="derive-item">
+                <span class="derive-icon d-power" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 3 5 13.5h5L9.5 21 18 10.5h-5L13 3Z" stroke-linejoin="round"/></svg>
+                </span>
+                <div><span class="derive-label">电量使用</span><strong id="d-elec-delta" class="derive-value">—</strong></div>
+              </div>
+              <div class="derive-item">
+                <span class="derive-icon d-avg" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 17 9 11l3 3 7-8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 21h16" stroke-linecap="round"/></svg>
+                </span>
+                <div><span class="derive-label">日均用电</span><strong id="d-daily-avg" class="derive-value">—</strong></div>
+              </div>
+              <div class="derive-item">
+                <span class="derive-icon d-days" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </span>
+                <div><span class="derive-label">预计可用天数
+                  <span class="info-tip" tabindex="0" data-tip="按当前时间范围内的日均用电估算，仅供参考">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.5" stroke-linecap="round"/></svg>
+                  </span>
+                </span><strong id="d-days-left" class="derive-value">—</strong></div>
+              </div>
+            </div>
+          </section>
+        </main>
+
+        <!-- ── View: auth takeover ─────────────────────── -->
+        <main class="view view-auth" id="view-auth" hidden>
+          <div class="alert alert-info" role="status">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.5" stroke-linecap="round"/></svg>
+            <p>认证容器运行中，完成登录并导出会话后将自动退出。内置浏览器（noVNC）将打开校园统一认证页面，请在其中完成多因素认证（MFA）。</p>
+            <span id="auth-flow-pill" class="pill pill-info">认证未启动</span>
+          </div>
+
+          <div class="auth-grid">
+            <section class="card vnc-card">
+              <div class="card-head">
+                <div class="vnc-title">
+                  <h2>认证容器（Chromium）</h2>
+                  <span id="vnc-state" class="badge-mini">未启动</span>
+                  <span id="vnc-url" class="mono vnc-url"></span>
+                </div>
+                <div class="card-tools">
+                  <a id="vnc-open-tab" class="btn btn-quiet btn-sm" href="#" target="_blank" rel="noopener">新标签</a>
+                  <button id="btn-vnc-fullscreen" type="button" class="btn btn-quiet btn-sm">全屏</button>
+                  <button id="btn-auth-stop" type="button" class="btn btn-danger btn-sm">断开</button>
+                </div>
+              </div>
+              <p id="vnc-hint" class="card-sub vnc-hint">点右上角「刷新登录」或下方「启动认证」开始。</p>
+              <div class="vnc-frame-wrap">
+                <iframe id="vnc-frame" title="noVNC" src="about:blank" allow="clipboard-read; clipboard-write"></iframe>
+                <div id="vnc-placeholder" class="vnc-placeholder">
+                  <button id="btn-auth-start-2" type="button" class="btn btn-primary">启动认证</button>
+                </div>
+              </div>
+            </section>
+
+            <aside class="auth-side">
+              <section class="card flow-card">
+                <h2 class="flow-title">认证流程</h2>
+                <ol class="flow-steps" id="flow-steps">
+                  <li class="flow-step" data-step="start">
+                    <span class="flow-idx">1</span>
+                    <div><strong>启动容器 <span class="flow-pill" hidden></span></strong><small>拉起 Xvfb + Chromium + noVNC</small><time class="mono"></time></div>
+                  </li>
+                  <li class="flow-step" data-step="portal">
+                    <span class="flow-idx">2</span>
+                    <div><strong>打开校园门户 <span class="flow-pill" hidden></span></strong><small>内置浏览器加载统一认证页</small><time class="mono"></time></div>
+                  </li>
+                  <li class="flow-step" data-step="mfa">
+                    <span class="flow-idx">3</span>
+                    <div><strong>等待 MFA <span class="flow-pill" hidden></span></strong><small>请在左侧浏览器中完成多因素认证</small><time class="mono"></time></div>
+                  </li>
+                  <li class="flow-step" data-step="export">
+                    <span class="flow-idx">4</span>
+                    <div><strong>导出会话 <span class="flow-pill" hidden></span></strong><small>完成认证后自动导出会话信息</small><time class="mono"></time></div>
+                  </li>
+                  <li class="flow-step" data-step="exit">
+                    <span class="flow-idx">5</span>
+                    <div><strong>自动退出 <span class="flow-pill" hidden></span></strong><small>导出完成后容器自动退出</small><time class="mono"></time></div>
+                  </li>
+                </ol>
+              </section>
+
+              <section class="card note-card">
+                <h2 class="flow-title">说明</h2>
+                <ul class="note-list">
+                  <li>请在左侧浏览器中完成校园统一认证的多因素验证。</li>
+                  <li>认证成功后，系统将自动导出会话并关闭容器。</li>
+                  <li>如遇页面白屏或卡顿，请点击「刷新登录」重新启动容器。</li>
+                </ul>
+              </section>
+            </aside>
+          </div>
+        </main>
+
+        <!-- ── Right panel: samples / events ───────────── -->
+        <aside class="right-panel" id="right-panel">
+          <header class="panel-head">
+            <h2>采样历史 / 事件日志</h2>
+            <button type="button" class="btn btn-quiet btn-sm panel-close" id="btn-panel-close" aria-label="收起">×</button>
+          </header>
+
+          <div class="panel-tabs" role="tablist">
+            <button type="button" class="panel-tab is-active" data-tab="events" role="tab">事件日志</button>
+            <button type="button" class="panel-tab" data-tab="samples" role="tab">采样历史</button>
+          </div>
+
+          <div class="panel-filters" id="events-filters">
+            <select id="filter-type" aria-label="事件类型">
+              <option value="">全部类型</option>
+              <option value="query">查询</option>
+              <option value="email">邮件</option>
+              <option value="auth">认证</option>
+              <option value="settings">设置</option>
+              <option value="alert">告警</option>
+            </select>
+            <select id="filter-status" aria-label="状态">
+              <option value="">全部状态</option>
+              <option value="ok">成功</option>
+              <option value="bad">失败</option>
+            </select>
+            <input type="date" id="filter-date" aria-label="按日期筛选" title="按日期筛选" />
+            <button type="button" class="btn btn-quiet btn-sm" id="btn-panel-refresh" title="刷新" aria-label="刷新">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4h-4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+
+          <div class="table-shell panel-table" id="panel-events" role="tabpanel">
+            <table class="table events-table">
+              <thead>
+                <tr><th scope="col">时间</th><th scope="col">事件类型</th><th scope="col">详情</th><th scope="col">状态</th></tr>
+              </thead>
+              <tbody id="events-body"></tbody>
+            </table>
+          </div>
+          <div class="table-shell panel-table" id="panel-samples" role="tabpanel" hidden>
+            <table class="table samples-table">
+              <thead>
+                <tr><th scope="col">时间</th><th scope="col" class="num">金额</th><th scope="col" class="num">电量</th></tr>
+              </thead>
+              <tbody id="samples-body"></tbody>
+            </table>
+          </div>
+
+          <footer class="panel-foot">
+            <nav id="panel-pager" class="pager" aria-label="分页"></nav>
+            <div class="panel-foot-meta">
+              <span id="panel-total" class="pager-info">共 0 条</span>
+              <select id="panel-page-size" aria-label="每页条数">
+                <option value="10">10 条/页</option>
+                <option value="20">20 条/页</option>
+                <option value="50">50 条/页</option>
+              </select>
+              <span class="jump-wrap">跳至 <input id="panel-jump" type="number" min="1" value="1" aria-label="跳至页码" /> 页</span>
+            </div>
+          </footer>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Settings modal: 告警与采样设置 ────────────────── -->
+  <div id="settings-modal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <header class="modal-head">
+        <h2 id="settings-title">告警与采样设置</h2>
+        <button type="button" class="modal-close" id="btn-settings-close" aria-label="关闭">×</button>
+      </header>
+      <form id="settings-form" class="settings-form" autocomplete="off">
+        <div class="form-grid">
+          <label class="field" for="set-smtp-server">
+            <span class="field-label"><em>*</em> SMTP 服务器</span>
+            <div class="field-row-inline">
+              <input id="set-smtp-server" name="smtp_server" type="text" placeholder="smtp.qq.com" />
+              <span class="field-sep">:</span>
+              <input id="set-smtp-port" name="smtp_port" type="number" min="1" max="65535" class="input-port" placeholder="465" />
+            </div>
+          </label>
+          <label class="field" for="set-smtp-from">
+            <span class="field-label"><em>*</em> 发信邮箱</span>
+            <input id="set-smtp-from" name="smtp_from" type="email" placeholder="your@qq.com" />
+          </label>
+          <label class="field field-span" for="set-smtp-auth">
+            <span class="field-label"><em>*</em> 授权码</span>
+            <input id="set-smtp-auth" name="smtp_auth_code" type="password" placeholder="留空则保持不变" autocomplete="new-password" />
+            <small id="set-smtp-auth-hint" class="field-hint">授权码为只写入字段，保存后将不会回显</small>
+          </label>
+          <label class="field" for="set-smtp-from-name">
+            <span class="field-label">发件显示名</span>
+            <input id="set-smtp-from-name" name="smtp_from_name" type="text" placeholder="roominfo" />
+          </label>
+          <label class="field field-check" for="set-smtp-ssl">
+            <input id="set-smtp-ssl" name="smtp_use_ssl" type="checkbox" />
+            <span>使用 SSL（465 推荐勾选）</span>
+          </label>
+          <label class="field field-span" for="set-recipients">
+            <span class="field-label"><em>*</em> 收件邮箱 <small class="field-hint">多个用逗号或换行分隔</small></span>
+            <textarea id="set-recipients" name="recipients" rows="2" placeholder="dorm.monitor@example.com"></textarea>
+          </label>
+          <label class="field" for="set-room-id">
+            <span class="field-label"><em>*</em> 房间 ID</span>
+            <input id="set-room-id" name="room_id" type="text" placeholder="可选" />
+          </label>
+          <label class="field" for="set-threshold">
+            <span class="field-label"><em>*</em> 低余额告警阈值</span>
+            <div class="field-row-inline">
+              <input id="set-threshold" name="low_balance_threshold" type="number" min="0" step="0.1" />
+              <span class="field-suffix">元</span>
+            </div>
+          </label>
+          <label class="field" for="set-interval">
+            <span class="field-label"><em>*</em> 检查间隔</span>
+            <div class="field-row-inline">
+              <input id="set-interval" name="check_interval_minutes" type="number" min="1" step="1" />
+              <span class="field-suffix">分钟</span>
+            </div>
+          </label>
+          <div class="field field-test">
+            <button type="button" class="btn btn-soft" id="btn-settings-test">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m3 11 18-7-7 18-2.5-7.5L3 11Z" stroke-linejoin="round"/></svg>
+              发送测试邮件
+            </button>
+          </div>
+        </div>
+
+        <p id="settings-msg" class="settings-msg" hidden role="status"></p>
+
+        <footer class="modal-foot">
+          <button type="button" class="btn btn-quiet" id="btn-settings-cancel">取消</button>
+          <button type="submit" class="btn btn-primary" id="btn-settings-save">保存设置</button>
+        </footer>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
